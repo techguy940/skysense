@@ -3,11 +3,17 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
+import 'package:weather_app/screens/favourites_scr.dart';
+import 'package:weather_app/widgets/current_temp.dart';
 import 'package:weather_app/widgets/forecast.dart';
 import 'package:intl/intl.dart';
 import 'package:weather_app/screens/forecast_scr.dart';
 import 'package:weather_app/screens/search_scr.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:weather_app/widgets/hourly_forecast.dart';
+import 'package:weather_app/widgets/metrics.dart';
+import 'package:weather_app/widgets/place_name.dart';
+import 'package:weather_app/widgets/weather_details.dart';
 
 class HomePage extends StatefulWidget {
   final double latitude;
@@ -56,6 +62,31 @@ class _HomePageState extends State<HomePage> {
     _askForPermission();
   }
 
+  Future<void> _setFavouriteStatus() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? favs = prefs.getString("favourites");
+    List _favs = [];
+    if (favs != null) {
+      _favs = json.decode(favs);
+    }
+    double? lat, lon;
+    if (widget.latitude != -100000 && widget.longitude != -100000) {
+      lat = widget.latitude;
+      lon = widget.longitude;
+    } else {
+      lat = currentPos?.latitude;
+      lon = currentPos?.longitude;
+    }
+    for (final place in _favs) {
+      if (place['latitude'] == lat && place['longitude'] == lon) {
+        setState(() {
+          fav = true;
+        });
+        break;
+      }
+    }
+  }
+
   Future<void> _getDailyForecast(context) async {
     Navigator.push(
       context,
@@ -85,8 +116,16 @@ class _HomePageState extends State<HomePage> {
       );
       return;
     }
+    double? lat, lon;
+    if (widget.latitude != -100000 && widget.longitude != -100000) {
+      lat = widget.latitude;
+      lon = widget.longitude;
+    } else {
+      lat = currentPos?.latitude;
+      lon = currentPos?.longitude;
+    }
     var res = await http.get(Uri.parse(
-        "${base_url}/forecast.json?key=${API_KEY}&q=${currentPos?.latitude},${currentPos?.longitude}&days=8"));
+        "${base_url}/forecast.json?key=${API_KEY}&q=${lat},${lon}&days=8"));
     var jsonRes = jsonDecode(res.body);
     List daily = jsonRes['forecast']['forecastday'];
     daily = daily.sublist(1, daily.length);
@@ -98,7 +137,7 @@ class _HomePageState extends State<HomePage> {
                 DateTime.fromMillisecondsSinceEpoch(data['date_epoch'] * 1000)),
             maxTemp: data['day']['maxtemp_c'].round(),
             minTemp: data['day']['mintemp_c'].round(),
-            image: "https:" + data['day']['condition']['icon']);
+            image: "https:${data['day']['condition']['icon']}");
       }).toList();
       Navigator.pop(context);
       Navigator.push(
@@ -113,176 +152,101 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _askForPermission() async {
-    final SharedPreferences prefs = await SharedPreferences.getInstance();
-    String? favs = prefs.getString("favourites");
-    print(json.decode(favs!));
+    // final SharedPreferences prefs = await SharedPreferences.getInstance();
+    // prefs.setString("favourites", json.encode([]));
+    // // print(json.decode(favs!));
     if (widget.longitude != -100000 && widget.latitude != -100000) {
+      var res = await http.get(Uri.parse(
+          "${base_url}/current.json?key=${API_KEY}&q=${widget.latitude},${widget.longitude}"));
+      var jsonResp = jsonDecode(res.body);
+      var forecastRes = await http.get(Uri.parse(
+          "${base_url}/forecast.json?key=${API_KEY}&q=${widget.latitude},${widget.longitude}"));
+      var forecastJsonResp = jsonDecode(forecastRes.body);
+      var hourlyJson = forecastJsonResp['forecast']['forecastday'][0]['hour'];
+      var hourlyForecastsLocal = hourlyJson.map((data) {
+        String hour = data['time'].split(" ")[1].split(":")[0];
+        if (int.parse(hour) < 12) {
+          hour = "${int.parse(hour)} AM";
+        } else if (int.parse(hour) == 12) {
+          hour = "$hour PM";
+        } else {
+          hour = "${int.parse(hour) - 12} PM";
+        }
+        String temp = data['temp_c'].round().toString();
+        return {
+          'hour': hour,
+          'temp': temp,
+          'image': "https:${data['condition']['icon']}"
+        };
+      }).toList();
+      await _getBgImage(jsonResp['current']['condition']['code']);
       setState(() {
-        http
-            .get(Uri.parse(
-                "${base_url}/current.json?key=${API_KEY}&q=${widget.latitude},${widget.longitude}"))
-            .then((res) {
-          setState(() {
-            var jsonResp = jsonDecode(res.body);
-            temp = (jsonResp['current']['temp_c']).round().toString();
-            pressure =
-                (jsonResp['current']['pressure_mb'] / 10).round().toString();
-            humidity = jsonResp['current']['humidity'].toString();
-            windSpeed = jsonResp['current']['wind_kph'].round().toString();
-            locality = widget.locality;
-            feelsLike = jsonResp['current']['feelslike_c'].round().toString();
-            tempCondition = jsonResp['current']['condition']['text'];
-            tempCondImg = "https:" + jsonResp['current']['condition']['icon'];
-            uvIndex = jsonResp['current']['uv'].round().toString();
-            cloudPercent = jsonResp['current']['cloud'].round().toString();
-            precip = jsonResp['current']['precip_mm'].round().toString();
-            windGust = jsonResp['current']['gust_kph'].round().toString();
-            http
-                .get(Uri.parse(
-                    "${base_url}/forecast.json?key=${API_KEY}&q=${widget.latitude},${widget.longitude}"))
-                .then((res) {
-              setState(() {
-                var hourlyJson =
-                    jsonDecode(res.body)['forecast']['forecastday'][0]['hour'];
-                hourlyForecasts = hourlyJson.map((data) {
-                  String hour = data['time'].split(" ")[1].split(":")[0];
-                  if (int.parse(hour) < 12) {
-                    hour = "${int.parse(hour)} AM";
-                  } else if (int.parse(hour) == 12) {
-                    hour = "$hour PM";
-                  } else {
-                    hour = "${int.parse(hour) - 12} PM";
-                  }
-                  String temp = data['temp_c'].round().toString();
-                  return {
-                    'hour': hour,
-                    'temp': temp,
-                    'image': "https:${data['condition']['icon']}"
-                  };
-                }).toList();
-              });
-            });
-            _getBgImage(jsonResp['current']['condition']['code']).then((res) {
-              ready = true;
-            });
-          });
-        });
+        temp = (jsonResp['current']['temp_c']).round().toString();
+        pressure = (jsonResp['current']['pressure_mb'] / 10).round().toString();
+        humidity = jsonResp['current']['humidity'].toString();
+        windSpeed = jsonResp['current']['wind_kph'].round().toString();
+        locality = widget.locality;
+        feelsLike = jsonResp['current']['feelslike_c'].round().toString();
+        tempCondition = jsonResp['current']['condition']['text'];
+        tempCondImg = "https:${jsonResp['current']['condition']['icon']}";
+        uvIndex = jsonResp['current']['uv'].round().toString();
+        cloudPercent = jsonResp['current']['cloud'].round().toString();
+        precip = jsonResp['current']['precip_mm'].round().toString();
+        windGust = jsonResp['current']['gust_kph'].round().toString();
+        hourlyForecasts = hourlyForecastsLocal;
+        _setFavouriteStatus();
+        ready = true;
       });
       return;
     }
+
     const permission = Permission.location;
     final status = await permission.request();
-    if (status.isGranted) {
-      Geolocator.getCurrentPosition().then((pos) {
-        setState(() {
-          currentPos = pos;
-          http
-              .get(Uri.parse(
-                  "${base_url}/current.json?key=${API_KEY}&q=${currentPos?.latitude},${currentPos?.longitude}"))
-              .then((res) {
-            setState(() {
-              var jsonResp = jsonDecode(res.body);
-              temp = (jsonResp['current']['temp_c']).round().toString();
-              pressure =
-                  (jsonResp['current']['pressure_mb'] / 10).round().toString();
-              humidity = jsonResp['current']['humidity'].toString();
-              windSpeed = jsonResp['current']['wind_kph'].round().toString();
-              locality = jsonResp['location']['name'];
-              feelsLike = jsonResp['current']['feelslike_c'].round().toString();
-              tempCondition = jsonResp['current']['condition']['text'];
-              tempCondImg = "https:" + jsonResp['current']['condition']['icon'];
-              uvIndex = jsonResp['current']['uv'].round().toString();
-              cloudPercent = jsonResp['current']['cloud'].round().toString();
-              precip = jsonResp['current']['precip_mm'].round().toString();
-              windGust = jsonResp['current']['gust_kph'].round().toString();
-              http
-                  .get(Uri.parse(
-                      "${base_url}/forecast.json?key=${API_KEY}&q=${currentPos?.latitude},${currentPos?.longitude}"))
-                  .then((res) {
-                setState(() {
-                  var hourlyJson = jsonDecode(res.body)['forecast']
-                      ['forecastday'][0]['hour'];
-                  hourlyForecasts = hourlyJson.map((data) {
-                    String hour = data['time'].split(" ")[1].split(":")[0];
-                    if (int.parse(hour) < 12) {
-                      hour = "${int.parse(hour)} AM";
-                    } else if (int.parse(hour) == 12) {
-                      hour = "$hour PM";
-                    } else {
-                      hour = "${int.parse(hour) - 12} PM";
-                    }
-                    String temp = data['temp_c'].round().toString();
-                    return {
-                      'hour': hour,
-                      'temp': temp,
-                      'image': "https:${data['condition']['icon']}"
-                    };
-                  }).toList();
-                });
-              });
-              _getBgImage(jsonResp['current']['condition']['code']).then((res) {
-                ready = true;
-              });
-            });
-          });
-        });
-      });
-    } else {
-      Geolocator.getLastKnownPosition().then((pos) {
-        setState(() {
-          currentPos = pos;
-          http
-              .get(Uri.parse(
-                  "${base_url}/current.json?key=${API_KEY}&q=${currentPos?.latitude},${currentPos?.longitude}"))
-              .then((res) {
-            setState(() {
-              var jsonResp = jsonDecode(res.body);
-              temp = (jsonResp['current']['temp_c']).round().toString();
-              pressure =
-                  (jsonResp['current']['pressure_mb'] / 0.1).round().toString();
-              humidity = jsonResp['current']['humidity'].toString();
-              locality = jsonResp['location']['name'];
-              windSpeed = jsonResp['current']['wind_kph'].round().toString();
-              feelsLike = jsonResp['current']['feelslike_c'].round().toString();
-              tempCondition = jsonResp['current']['condition']['text'];
-              tempCondImg = "https:" + jsonResp['current']['condition']['icon'];
-              uvIndex = jsonResp['current']['uv'].round().toString();
-              cloudPercent = jsonResp['current']['cloud'].round().toString();
-              precip = jsonResp['current']['precip_mm'].round().toString();
-              windGust = jsonResp['current']['gust_kph'].round().toString();
-              http
-                  .get(Uri.parse(
-                      "${base_url}/forecast.json?key=${API_KEY}&q=${currentPos?.latitude},${currentPos?.longitude}"))
-                  .then((res) {
-                setState(() {
-                  var hourlyJson = jsonDecode(res.body)['forecast']
-                      ['forecastday'][0]['hour'];
-                  hourlyForecasts = hourlyJson.map((data) {
-                    String hour = data['time'].split(" ")[1].split(":")[0];
-                    if (int.parse(hour) < 12) {
-                      hour = "${int.parse(hour)} AM";
-                    } else if (int.parse(hour) == 12) {
-                      hour = "$hour PM";
-                    } else {
-                      hour = "${int.parse(hour) - 12} PM";
-                    }
-                    String temp = data['temp_c'].round().toString();
-                    return {
-                      'hour': hour,
-                      'temp': temp,
-                      'image': "https:${data['condition']['icon']}"
-                    };
-                  }).toList();
-                });
-              });
-              _getBgImage(jsonResp['current']['condition']['code']).then((res) {
-                ready = true;
-              });
-            });
-          });
-        });
-      });
-    }
+    var pos = status.isGranted
+        ? await Geolocator.getCurrentPosition()
+        : await Geolocator.getLastKnownPosition();
+    var res = await http.get(Uri.parse(
+        "${base_url}/current.json?key=${API_KEY}&q=${pos?.latitude},${pos?.longitude}"));
+    var jsonResp = jsonDecode(res.body);
+    var forecastRes = await http.get(Uri.parse(
+        "${base_url}/forecast.json?key=${API_KEY}&q=${pos?.latitude},${pos?.longitude}"));
+    var forecastJsonResp = jsonDecode(forecastRes.body);
+    var hourlyJson = forecastJsonResp['forecast']['forecastday'][0]['hour'];
+    var hourlyForecastsLocal = hourlyJson.map((data) {
+      String hour = data['time'].split(" ")[1].split(":")[0];
+      if (int.parse(hour) < 12) {
+        hour = "${int.parse(hour)} AM";
+      } else if (int.parse(hour) == 12) {
+        hour = "$hour PM";
+      } else {
+        hour = "${int.parse(hour) - 12} PM";
+      }
+      String temp = data['temp_c'].round().toString();
+      return {
+        'hour': hour,
+        'temp': temp,
+        'image': "https:${data['condition']['icon']}"
+      };
+    }).toList();
+    await _getBgImage(jsonResp['current']['condition']['code']);
+    setState(() {
+      currentPos = pos;
+      temp = (jsonResp['current']['temp_c']).round().toString();
+      pressure = (jsonResp['current']['pressure_mb'] / 10).round().toString();
+      humidity = jsonResp['current']['humidity'].toString();
+      windSpeed = jsonResp['current']['wind_kph'].round().toString();
+      locality = jsonResp['location']['name'];
+      feelsLike = jsonResp['current']['feelslike_c'].round().toString();
+      tempCondition = jsonResp['current']['condition']['text'];
+      tempCondImg = "https:${jsonResp['current']['condition']['icon']}";
+      uvIndex = jsonResp['current']['uv'].round().toString();
+      cloudPercent = jsonResp['current']['cloud'].round().toString();
+      precip = jsonResp['current']['precip_mm'].round().toString();
+      windGust = jsonResp['current']['gust_kph'].round().toString();
+      hourlyForecasts = hourlyForecastsLocal;
+      _setFavouriteStatus();
+      ready = true;
+    });
   }
 
   Future<int> _getBgImage(int code) async {
@@ -376,6 +340,21 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ),
                   );
+                } else if (_bottomNavIndex == 2) {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => WillPopScope(
+                        onWillPop: () async {
+                          setState(() {
+                            _bottomNavIndex = 0;
+                          });
+                          return true;
+                        },
+                        child: const Favourites(),
+                      ),
+                    ),
+                  );
                 }
               }),
               items: [
@@ -384,7 +363,7 @@ class _HomePageState extends State<HomePage> {
                   icon: Icon(
                     Icons.home_rounded,
                     color: _bottomNavIndex == 0
-                        ? Colors.white
+                        ? Colors.blue
                         : Colors.grey.shade400,
                   ),
                 ),
@@ -393,7 +372,7 @@ class _HomePageState extends State<HomePage> {
                   icon: Icon(
                     Icons.search_rounded,
                     color: _bottomNavIndex == 1
-                        ? Colors.white
+                        ? Colors.blue
                         : Colors.grey.shade400,
                   ),
                 ),
@@ -402,7 +381,7 @@ class _HomePageState extends State<HomePage> {
                   icon: Icon(
                     Icons.favorite,
                     color: _bottomNavIndex == 2
-                        ? Colors.white
+                        ? Colors.blue
                         : Colors.grey.shade400,
                   ),
                 ),
@@ -432,26 +411,7 @@ class _HomePageState extends State<HomePage> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            Row(
-                              children: [
-                                const Icon(
-                                  Icons.location_on_outlined,
-                                  color: Colors.white,
-                                  size: 30,
-                                ),
-                                const SizedBox(
-                                  width: 5,
-                                ),
-                                Text(
-                                  locality!,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 26,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
+                            PlaceName(label: locality!),
                             IconButton(
                               onPressed: () async {
                                 final SharedPreferences prefs =
@@ -461,32 +421,38 @@ class _HomePageState extends State<HomePage> {
                                 if (favs != null) {
                                   _favs = json.decode(favs);
                                 }
+                                var label = widget.latitude == -100000
+                                    ? locality
+                                    : widget.locality;
+                                var latitude = widget.latitude == -100000
+                                    ? currentPos!.latitude
+                                    : widget.latitude;
+                                var longitude = widget.latitude == -100000
+                                    ? currentPos!.longitude
+                                    : widget.longitude;
                                 if (fav == false) {
-                                  if (widget.latitude == -100000) {
-                                    _favs.add({
-                                      "label": locality,
-                                      "latitude": currentPos!.latitude,
-                                      "longitude": currentPos!.longitude
-                                    });
-                                    prefs.setString(
-                                      "favourites",
-                                      json.encode(_favs),
-                                    );
-                                    print(json.decode(
-                                        prefs.getString("favourites")!));
-                                  } else {
-                                    _favs.add({
-                                      "label": widget.locality,
-                                      "latitude": widget.latitude,
-                                      "longitude": widget.longitude
-                                    });
-                                    prefs.setString(
-                                      "favourites",
-                                      json.encode(_favs),
-                                    );
-                                    print(json.decode(
-                                        prefs.getString("favourites")!));
+                                  _favs.add({
+                                    "label": label,
+                                    "latitude": latitude,
+                                    "longitude": longitude
+                                  });
+                                  prefs.setString(
+                                    "favourites",
+                                    json.encode(_favs),
+                                  );
+                                } else {
+                                  for (final elem in _favs) {
+                                    if (_favs[0]['label'] == label &&
+                                        _favs[0]['latitude'] == latitude &&
+                                        _favs[0]['longitude'] == longitude) {
+                                      _favs.remove(elem);
+                                      break;
+                                    }
                                   }
+                                  prefs.setString(
+                                    "favourites",
+                                    json.encode(_favs),
+                                  );
                                 }
                                 setState(() {
                                   fav = !fav;
@@ -509,30 +475,7 @@ class _HomePageState extends State<HomePage> {
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              RichText(
-                                text: TextSpan(
-                                  text: temp!,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 100,
-                                  ),
-                                  children: const [
-                                    TextSpan(
-                                      text: "\u00B0",
-                                      style: TextStyle(
-                                        // fontSize: 20,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
+                          CurrentTemperature(temp: temp!),
                           Text(
                             "Feels like ${feelsLike!}\u00B0 C",
                             style: const TextStyle(
@@ -549,252 +492,27 @@ class _HomePageState extends State<HomePage> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                           children: [
-                            Row(
-                              children: [
-                                Image.asset(
-                                  "assets/air-pressure-white.png",
-                                  width: 25,
-                                  height: 25,
-                                ),
-                                const SizedBox(
-                                  width: 7,
-                                ),
-                                Text(
-                                  "${pressure!} hPa",
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ],
+                            Details(
+                              asset: "assets/air-pressure-white.png",
+                              value: "${pressure!} hPa",
                             ),
-                            Row(
-                              children: [
-                                Image.asset(
-                                  "assets/humidity-white.png",
-                                  width: 25,
-                                  height: 25,
-                                ),
-                                const SizedBox(
-                                  width: 7,
-                                ),
-                                Text(
-                                  "${humidity!}%",
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ],
+                            Details(
+                              asset: "assets/humidity-white.png",
+                              value: "${humidity!}%",
                             ),
-                            Row(
-                              children: [
-                                Image.asset(
-                                  "assets/wind-speed-white.png",
-                                  width: 25,
-                                  height: 25,
-                                ),
-                                const SizedBox(
-                                  width: 7,
-                                ),
-                                Text(
-                                  "${windSpeed!} kmph",
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ],
+                            Details(
+                              asset: "assets/wind-speed-white.png",
+                              value: "${windSpeed!} kmph",
                             ),
                           ],
                         ),
                       ),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 10,
-                          horizontal: 20,
-                        ),
-                        margin: const EdgeInsets.symmetric(
-                          vertical: 0,
-                          horizontal: 30,
-                        ),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(5),
-                          color: Colors.grey.shade400.withOpacity(0.2),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              "Metrics",
-                              style: TextStyle(
-                                color: Colors.white,
-                                letterSpacing: 1,
-                                fontSize: 16,
-                              ),
-                            ),
-                            const SizedBox(
-                              height: 10,
-                            ),
-                            Column(
-                              children: [
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          "CONDITION",
-                                          style: TextStyle(
-                                            color: Color.fromRGBO(
-                                                200, 200, 200, 1),
-                                            letterSpacing: 2,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                        Text(
-                                          tempCondition!,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          "ULTRAVIOLET",
-                                          style: TextStyle(
-                                            color: Color.fromRGBO(
-                                                200, 200, 200, 1),
-                                            letterSpacing: 2,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                        Text(
-                                          uvIndex!,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      ],
-                                    )
-                                  ],
-                                ),
-                                const SizedBox(
-                                  height: 10,
-                                ),
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Column(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.start,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          "PRECIPITATION",
-                                          style: TextStyle(
-                                            color: Color.fromRGBO(
-                                                200, 200, 200, 1),
-                                            letterSpacing: 2,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                        Text(
-                                          "${precip!} mm",
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    Column(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.start,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          "CLOUDINESS",
-                                          style: TextStyle(
-                                            color: Color.fromRGBO(
-                                                200, 200, 200, 1),
-                                            letterSpacing: 2,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                        Text(
-                                          "${cloudPercent!}%",
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(
-                                  height: 10,
-                                ),
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          "WIND GUST",
-                                          style: TextStyle(
-                                            color: Color.fromRGBO(
-                                                200, 200, 200, 1),
-                                            letterSpacing: 2,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                        Text(
-                                          "${windGust!} kmph",
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          "AIR QUALITY",
-                                          style: TextStyle(
-                                            color: Color.fromRGBO(
-                                                200, 200, 200, 1),
-                                            letterSpacing: 2,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                        Text(
-                                          uvIndex!,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      ],
-                                    )
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
+                      Metrics(
+                        tempCondition: tempCondition!,
+                        uvIndex: uvIndex!,
+                        precip: precip!,
+                        cloudPercent: cloudPercent!,
+                        windGust: windGust!,
                       ),
                       const SizedBox(
                         height: 20,
@@ -860,51 +578,12 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
           )
-        : const CircularProgressIndicator();
-  }
-}
-
-class HourlyForecast extends StatefulWidget {
-  final String temp;
-  final String hour;
-  final String image;
-  const HourlyForecast(
-      {super.key, required this.hour, required this.temp, required this.image});
-
-  @override
-  State<HourlyForecast> createState() => _HourlyForecastState();
-}
-
-class _HourlyForecastState extends State<HourlyForecast> {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(
-        right: 20,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Text(
-            widget.hour,
-            style: TextStyle(
-              color: Colors.white.withAlpha(200),
-            ),
-          ),
-          Image.network(
-            widget.image,
-            width: 50,
-            height: 50,
-          ),
-          Text(
-            "${widget.temp}°",
-            style: const TextStyle(
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-            ),
-          ),
-        ],
-      ),
-    );
+        : const Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+            ],
+          );
   }
 }
