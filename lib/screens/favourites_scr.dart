@@ -80,7 +80,7 @@ class Favourites extends StatefulWidget {
 class _FavouritesState extends State<Favourites> {
   bool ready = false;
   List favourites = [];
-  String API_KEY = "";
+  String API_KEY = "580b14a8a6934975a43115003230511";
   String base_url = "https://api.weatherapi.com/v1";
 
   @override

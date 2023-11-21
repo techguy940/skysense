@@ -7,6 +7,7 @@ class Metrics extends StatefulWidget {
   final String precip;
   final String cloudPercent;
   final String windGust;
+  final String aqi;
   const Metrics({
     super.key,
     required this.tempCondition,
@@ -14,6 +15,7 @@ class Metrics extends StatefulWidget {
     required this.precip,
     required this.cloudPercent,
     required this.windGust,
+    required this.aqi,
   });
 
   @override
@@ -96,7 +98,7 @@ class _MetricsState extends State<Metrics> {
                   // Todo: Fetch AQI
                   Metric(
                     label: "AIR QUALITY",
-                    value: widget.uvIndex,
+                    value: widget.aqi,
                   ),
                 ],
               ),

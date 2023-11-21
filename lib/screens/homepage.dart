@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+// import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
@@ -14,6 +16,80 @@ import 'package:weather_app/widgets/hourly_forecast.dart';
 import 'package:weather_app/widgets/metrics.dart';
 import 'package:weather_app/widgets/place_name.dart';
 import 'package:weather_app/widgets/weather_details.dart';
+import 'package:liquid_pull_to_refresh/liquid_pull_to_refresh.dart';
+import 'package:awesome_notifications/awesome_notifications.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
+import 'package:flutter_osm_plugin/flutter_osm_plugin.dart';
+import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
+
+@pragma('vm:entry-point')
+Future sendNotification(double lat, double lon, int currentTemp,
+    String tempCondition, String tempCondImg, String placeName) async {
+  bool isAllowed = await AwesomeNotifications().isNotificationAllowed();
+  if (!isAllowed) return;
+  print("INSIDE");
+  AwesomeNotifications().createNotification(
+    content: NotificationContent(
+      id: 10,
+      channelKey: 'basic_channel',
+      actionType: ActionType.Default,
+      largeIcon: tempCondImg,
+      title: '$currentTemp° in $placeName',
+      body: tempCondition,
+    ),
+  );
+}
+
+@pragma('vm:entry-point')
+Future<List> getCurrentTemp(double lat, double lon) async {
+  String API_KEY = "";
+  String base_url = "https://api.weatherapi.com/v1";
+  var res = await http.get(
+      Uri.parse("${base_url}/current.json?key=${API_KEY}&q=${lat},${lon}"));
+  var jsonResp = jsonDecode(res.body);
+  int temp = (jsonResp['current']['temp_c']).round();
+  String tempCondition = jsonResp['current']['condition']['text'];
+  String tempCondImg = "https:${jsonResp['current']['condition']['icon']}";
+  String locality = jsonResp['location']['name'];
+  return [temp, tempCondition, tempCondImg, locality];
+}
+
+@pragma('vm:entry-point')
+Future checkWeatherPeriodic() async {
+  final SharedPreferences prefs = await SharedPreferences.getInstance();
+  String? mostRecent = prefs.getString("mostrecent");
+  if (mostRecent == null) return;
+  List mostRecentList = mostRecent.split(",");
+  double lat = double.parse(mostRecentList[0]);
+  double lon = double.parse(mostRecentList[1]);
+
+  String? notificationSent = prefs.getString("notificationsent");
+  String? notificationDate = prefs.getString("notificationdate");
+  String? lastTemp = prefs.getString("lasttemp");
+  String formatNow = DateFormat("yyyy-MM-dd").format(DateTime.now());
+  if (notificationSent == null ||
+      notificationDate != formatNow ||
+      lastTemp == null ||
+      notificationSent == "false") {
+    List currData = await getCurrentTemp(lat, lon);
+    await sendNotification(
+        lat, lon, currData[0], currData[1], currData[2], currData[3]);
+    prefs.setString("notificationsent", "true");
+    prefs.setString("notificationdate", formatNow);
+    prefs.setString("lasttemp", currData[0].toString());
+    return;
+  }
+  int lastTempInt = int.parse(lastTemp);
+  List currData = await getCurrentTemp(lat, lon);
+  if ((currData[0] - lastTempInt).abs() >= 4) {
+    await sendNotification(
+        lat, lon, currData[0], currData[1], currData[2], currData[3]);
+    prefs.setString("notificationsent", "true");
+    prefs.setString("notificationdate", formatNow);
+    prefs.setString("lasttemp", currData[0].toString());
+    return;
+  }
+}
 
 class HomePage extends StatefulWidget {
   final double latitude;
@@ -34,7 +110,7 @@ class _HomePageState extends State<HomePage> {
   String API_KEY = "";
   String AQI_API_KEY = "";
   String base_url = "https://api.weatherapi.com/v1";
-  String aqi_base_url = "https://api.weatherbit.io/v2.0/forecast/airquality";
+  String aqi_base_url = "https://api.weatherbit.io/v2.0/current/airquality";
   int _bottomNavIndex = 0;
   Position? currentPos;
   String? locality;
@@ -55,11 +131,50 @@ class _HomePageState extends State<HomePage> {
   String? aqi;
   bool forecastReady = false;
   List hourlyForecasts = [];
+  final MapController _mapController = MapController.withPosition(
+    initPosition: GeoPoint(
+      latitude: 47.4358055,
+      longitude: 8.4737324,
+    ),
+  );
   List<Widget> dailyForecast = [];
   @override
   void initState() {
     super.initState();
     _askForPermission();
+    AwesomeNotifications().isNotificationAllowed().then((isAllowed) {
+      if (!isAllowed) {
+        AwesomeNotifications().requestPermissionToSendNotifications();
+      }
+    });
+    // WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
+    //   _mapController.listenerMapSingleTapping.addListener(() async {
+    //     var position = _mapController.listenerMapSingleTapping.value;
+    //     print(position);
+    //     if (position != null) {
+    //       await _mapController.addMarker(
+    //         position,
+    //         markerIcon: const MarkerIcon(
+    //           icon: Icon(
+    //             Icons.pin_drop,
+    //             color: Colors.red,
+    //             size: 60,
+    //           ),
+    //         ),
+    //       );
+    //     }
+    //   });
+    // });
+    // AwesomeNotifications().createNotification(
+    //     content: NotificationContent(
+    //   id: 10,
+    //   channelKey: 'basic_channel',
+    //   actionType: ActionType.Default,
+    //   largeIcon:
+    //       'https://storage.googleapis.com/cms-storage-bucket/0dbfcc7a59cd1cf16282.png',
+    //   title: 'Hello World!',
+    //   body: 'This is my first notification!',
+    // ));
   }
 
   Future<void> _setFavouriteStatus() async {
@@ -152,10 +267,11 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _askForPermission() async {
-    // final SharedPreferences prefs = await SharedPreferences.getInstance();
-    // prefs.setString("favourites", json.encode([]));
-    // // print(json.decode(favs!));
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
     if (widget.longitude != -100000 && widget.latitude != -100000) {
+      prefs.setString("mostrecent", "${widget.latitude},${widget.longitude}");
+      await AndroidAlarmManager.periodic(
+          const Duration(minutes: 1), 69, checkWeatherPeriodic);
       var res = await http.get(Uri.parse(
           "${base_url}/current.json?key=${API_KEY}&q=${widget.latitude},${widget.longitude}"));
       var jsonResp = jsonDecode(res.body);
@@ -163,6 +279,10 @@ class _HomePageState extends State<HomePage> {
           "${base_url}/forecast.json?key=${API_KEY}&q=${widget.latitude},${widget.longitude}"));
       var forecastJsonResp = jsonDecode(forecastRes.body);
       var hourlyJson = forecastJsonResp['forecast']['forecastday'][0]['hour'];
+      var aqiRes = await http.get(Uri.parse(
+          "${aqi_base_url}?lat=${widget.latitude}&lon=${widget.longitude}&key=${AQI_API_KEY}"));
+      var aqiJson = jsonDecode(aqiRes.body);
+
       var hourlyForecastsLocal = hourlyJson.map((data) {
         String hour = data['time'].split(" ")[1].split(":")[0];
         if (int.parse(hour) < 12) {
@@ -194,17 +314,31 @@ class _HomePageState extends State<HomePage> {
         precip = jsonResp['current']['precip_mm'].round().toString();
         windGust = jsonResp['current']['gust_kph'].round().toString();
         hourlyForecasts = hourlyForecastsLocal;
+        aqi = aqiJson['data'][0]['aqi'].toString();
         _setFavouriteStatus();
         ready = true;
+        FlutterNativeSplash.remove();
+        // _mapController.changeLocation(
+        //   GeoPoint(
+        //     latitude: widget.latitude,
+        //     longitude: widget.longitude,
+        //   ),
+        // );
       });
       return;
     }
 
-    const permission = Permission.location;
-    final status = await permission.request();
-    var pos = status.isGranted
-        ? await Geolocator.getCurrentPosition()
-        : await Geolocator.getLastKnownPosition();
+    var pos = currentPos == null ? null : currentPos;
+    if (pos == null) {
+      const permission = Permission.location;
+      final status = await permission.request();
+      pos = status.isGranted
+          ? await Geolocator.getCurrentPosition()
+          : await Geolocator.getLastKnownPosition();
+    }
+    prefs.setString("mostrecent", "${pos?.latitude},${pos?.longitude}");
+    await AndroidAlarmManager.periodic(
+        const Duration(minutes: 1), 69, checkWeatherPeriodic);
     var res = await http.get(Uri.parse(
         "${base_url}/current.json?key=${API_KEY}&q=${pos?.latitude},${pos?.longitude}"));
     var jsonResp = jsonDecode(res.body);
@@ -212,6 +346,9 @@ class _HomePageState extends State<HomePage> {
         "${base_url}/forecast.json?key=${API_KEY}&q=${pos?.latitude},${pos?.longitude}"));
     var forecastJsonResp = jsonDecode(forecastRes.body);
     var hourlyJson = forecastJsonResp['forecast']['forecastday'][0]['hour'];
+    var aqiRes = await http.get(Uri.parse(
+        "${aqi_base_url}?lat=${pos?.latitude}&lon=${pos?.longitude}&key=${AQI_API_KEY}"));
+    var aqiJson = jsonDecode(aqiRes.body);
     var hourlyForecastsLocal = hourlyJson.map((data) {
       String hour = data['time'].split(" ")[1].split(":")[0];
       if (int.parse(hour) < 12) {
@@ -243,9 +380,17 @@ class _HomePageState extends State<HomePage> {
       cloudPercent = jsonResp['current']['cloud'].round().toString();
       precip = jsonResp['current']['precip_mm'].round().toString();
       windGust = jsonResp['current']['gust_kph'].round().toString();
+      aqi = aqiJson['data'][0]['aqi'].toString();
       hourlyForecasts = hourlyForecastsLocal;
       _setFavouriteStatus();
       ready = true;
+      FlutterNativeSplash.remove();
+      // _mapController.changeLocation(
+      //   GeoPoint(
+      //     latitude: pos?.latitude as double,
+      //     longitude: pos?.longitude as double,
+      //   ),
+      // );
     });
   }
 
@@ -304,12 +449,12 @@ class _HomePageState extends State<HomePage> {
     int hour = int.parse(DateFormat("HH").format(DateTime.now()));
     if (code == 1000) {
       if (hour > 5 && hour < 18) {
-        imagePath += "day.jpg";
+        imagePath += "day-dark.jpg";
       } else {
-        imagePath += "night.jpg";
+        imagePath += "night-dark.jpg";
       }
     } else {
-      imagePath += codes_map[code];
+      imagePath += codes_map[code].split(".")[0] + "-dark.jpg";
     }
     setState(() {
       bgImage = imagePath;
@@ -325,6 +470,7 @@ class _HomePageState extends State<HomePage> {
               currentIndex: _bottomNavIndex,
               onTap: (value) => setState(() {
                 _bottomNavIndex = value;
+                print(value);
                 if (_bottomNavIndex == 1) {
                   Navigator.push(
                     context,
@@ -355,6 +501,31 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ),
                   );
+                } else if (_bottomNavIndex == 3) {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => WillPopScope(
+                        onWillPop: () async {
+                          setState(() {
+                            _bottomNavIndex = 0;
+                          });
+                          return true;
+                        },
+                        child: Scaffold(
+                          body: OSMFlutter(
+                            controller: _mapController,
+                            osmOption: const OSMOption(
+                              zoomOption: ZoomOption(
+                                initZoom: 15,
+                                stepZoom: 1.0,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
                 }
               }),
               items: [
@@ -365,6 +536,7 @@ class _HomePageState extends State<HomePage> {
                     color: _bottomNavIndex == 0
                         ? Colors.blue
                         : Colors.grey.shade400,
+                    size: 26,
                   ),
                 ),
                 BottomNavigationBarItem(
@@ -374,6 +546,7 @@ class _HomePageState extends State<HomePage> {
                     color: _bottomNavIndex == 1
                         ? Colors.blue
                         : Colors.grey.shade400,
+                    size: 26,
                   ),
                 ),
                 BottomNavigationBarItem(
@@ -383,198 +556,248 @@ class _HomePageState extends State<HomePage> {
                     color: _bottomNavIndex == 2
                         ? Colors.blue
                         : Colors.grey.shade400,
+                    size: 26,
+                  ),
+                ),
+                BottomNavigationBarItem(
+                  label: 'Map',
+                  icon: Icon(
+                    Icons.map_outlined,
+                    color: _bottomNavIndex == 3
+                        ? Colors.blue
+                        : Colors.grey.shade400,
+                    size: 26,
                   ),
                 ),
               ],
             ),
             body: SafeArea(
-              child: Stack(
-                children: [
-                  Image.asset(
-                    bgImage!,
-                    fit: BoxFit.cover,
-                    height: double.infinity,
-                  ),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.5),
-                    ),
-                  ),
-                  Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 30,
-                          vertical: 20,
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            PlaceName(label: locality!),
-                            IconButton(
-                              onPressed: () async {
-                                final SharedPreferences prefs =
-                                    await SharedPreferences.getInstance();
-                                String? favs = prefs.getString("favourites");
-                                List _favs = [];
-                                if (favs != null) {
-                                  _favs = json.decode(favs);
-                                }
-                                var label = widget.latitude == -100000
-                                    ? locality
-                                    : widget.locality;
-                                var latitude = widget.latitude == -100000
-                                    ? currentPos!.latitude
-                                    : widget.latitude;
-                                var longitude = widget.latitude == -100000
-                                    ? currentPos!.longitude
-                                    : widget.longitude;
-                                if (fav == false) {
-                                  _favs.add({
-                                    "label": label,
-                                    "latitude": latitude,
-                                    "longitude": longitude
-                                  });
-                                  prefs.setString(
-                                    "favourites",
-                                    json.encode(_favs),
-                                  );
-                                } else {
-                                  for (final elem in _favs) {
-                                    if (_favs[0]['label'] == label &&
-                                        _favs[0]['latitude'] == latitude &&
-                                        _favs[0]['longitude'] == longitude) {
-                                      _favs.remove(elem);
-                                      break;
-                                    }
-                                  }
-                                  prefs.setString(
-                                    "favourites",
-                                    json.encode(_favs),
-                                  );
-                                }
-                                setState(() {
-                                  fav = !fav;
-                                });
-                              },
-                              icon: Icon(
-                                fav
-                                    ? Icons.favorite
-                                    : Icons.favorite_border_rounded,
-                                color: fav ? Colors.red : Colors.white,
-                                size: 26,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(
-                        height: 10,
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.center,
+              child: LiquidPullToRefresh(
+                onRefresh: () async {
+                  await _askForPermission();
+                },
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: ListView(
                         children: [
-                          CurrentTemperature(temp: temp!),
-                          Text(
-                            "Feels like ${feelsLike!}\u00B0 C",
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                            ),
+                          Stack(
+                            children: [
+                              Image.asset(
+                                bgImage!,
+                                fit: BoxFit.fill,
+                                height:
+                                    MediaQuery.of(context).size.height * 0.89,
+                                // height: double.infinity,
+                              ),
+                              // Container(
+                              //   decoration: BoxDecoration(
+                              //     color: Colors.black.withOpacity(0.5),
+                              //   ),
+                              // ),
+                              Column(
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 30,
+                                      vertical: 20,
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.center,
+                                      children: [
+                                        PlaceName(label: locality!),
+                                        IconButton(
+                                          onPressed: () async {
+                                            final SharedPreferences prefs =
+                                                await SharedPreferences
+                                                    .getInstance();
+                                            String? favs =
+                                                prefs.getString("favourites");
+                                            List _favs = [];
+                                            if (favs != null) {
+                                              _favs = json.decode(favs);
+                                            }
+                                            var label =
+                                                widget.latitude == -100000
+                                                    ? locality
+                                                    : widget.locality;
+                                            var latitude =
+                                                widget.latitude == -100000
+                                                    ? currentPos!.latitude
+                                                    : widget.latitude;
+                                            var longitude =
+                                                widget.latitude == -100000
+                                                    ? currentPos!.longitude
+                                                    : widget.longitude;
+                                            if (fav == false) {
+                                              _favs.add({
+                                                "label": label,
+                                                "latitude": latitude,
+                                                "longitude": longitude
+                                              });
+                                              prefs.setString(
+                                                "favourites",
+                                                json.encode(_favs),
+                                              );
+                                            } else {
+                                              for (final elem in _favs) {
+                                                if (_favs[0]['label'] ==
+                                                        label &&
+                                                    _favs[0]['latitude'] ==
+                                                        latitude &&
+                                                    _favs[0]['longitude'] ==
+                                                        longitude) {
+                                                  _favs.remove(elem);
+                                                  break;
+                                                }
+                                              }
+                                              prefs.setString(
+                                                "favourites",
+                                                json.encode(_favs),
+                                              );
+                                            }
+                                            setState(() {
+                                              fav = !fav;
+                                            });
+                                          },
+                                          icon: Icon(
+                                            fav
+                                                ? Icons.favorite
+                                                : Icons.favorite_border_rounded,
+                                            color:
+                                                fav ? Colors.red : Colors.white,
+                                            size: 26,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(
+                                    height: 10,
+                                  ),
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      CurrentTemperature(temp: temp!),
+                                      Text(
+                                        "Feels like ${feelsLike!}\u00B0 C",
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 18,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 20,
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceEvenly,
+                                      children: [
+                                        Details(
+                                          asset:
+                                              "assets/air-pressure-white.png",
+                                          value: "${pressure!} hPa",
+                                        ),
+                                        Details(
+                                          asset: "assets/humidity-white.png",
+                                          value: "${humidity!}%",
+                                        ),
+                                        Details(
+                                          asset: "assets/wind-speed-white.png",
+                                          value: "${windSpeed!} kmph",
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Metrics(
+                                    tempCondition: tempCondition!,
+                                    uvIndex: uvIndex!,
+                                    precip: precip!,
+                                    cloudPercent: cloudPercent!,
+                                    windGust: windGust!,
+                                    aqi: aqi!,
+                                  ),
+                                  const SizedBox(
+                                    height: 20,
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 20,
+                                      horizontal: 30,
+                                    ),
+                                    child: Column(
+                                      children: [
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            const Text(
+                                              "Today",
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                            InkWell(
+                                              onTap: () =>
+                                                  _getDailyForecast(context),
+                                              child: const Text(
+                                                "Next 7 Days",
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  decoration:
+                                                      TextDecoration.underline,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(
+                                          height: 10,
+                                        ),
+                                        Container(
+                                          width: double.infinity,
+                                          padding: const EdgeInsets.all(10),
+                                          height: 115,
+                                          decoration: BoxDecoration(
+                                            color: Colors.grey.shade400
+                                                .withOpacity(0.2),
+                                            borderRadius:
+                                                BorderRadius.circular(5),
+                                          ),
+                                          child: ListView(
+                                            physics:
+                                                const BouncingScrollPhysics(),
+                                            scrollDirection: Axis.horizontal,
+                                            children:
+                                                hourlyForecasts.map((data) {
+                                              return HourlyForecast(
+                                                hour: data['hour'],
+                                                temp: data['temp'],
+                                                image: data['image'],
+                                              );
+                                            }).toList(),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 20,
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            Details(
-                              asset: "assets/air-pressure-white.png",
-                              value: "${pressure!} hPa",
-                            ),
-                            Details(
-                              asset: "assets/humidity-white.png",
-                              value: "${humidity!}%",
-                            ),
-                            Details(
-                              asset: "assets/wind-speed-white.png",
-                              value: "${windSpeed!} kmph",
-                            ),
-                          ],
-                        ),
-                      ),
-                      Metrics(
-                        tempCondition: tempCondition!,
-                        uvIndex: uvIndex!,
-                        precip: precip!,
-                        cloudPercent: cloudPercent!,
-                        windGust: windGust!,
-                      ),
-                      const SizedBox(
-                        height: 20,
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 20,
-                          horizontal: 30,
-                        ),
-                        child: Column(
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text(
-                                  "Today",
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                InkWell(
-                                  onTap: () => _getDailyForecast(context),
-                                  child: const Text(
-                                    "Next 7 Days",
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      decoration: TextDecoration.underline,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(
-                              height: 10,
-                            ),
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(10),
-                              height: 115,
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade400.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(5),
-                              ),
-                              child: ListView(
-                                physics: const BouncingScrollPhysics(),
-                                scrollDirection: Axis.horizontal,
-                                children: hourlyForecasts.map((data) {
-                                  return HourlyForecast(
-                                    hour: data['hour'],
-                                    temp: data['temp'],
-                                    image: data['image'],
-                                  );
-                                }).toList(),
-                              ),
-                            )
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                    ),
+                  ],
+                ),
               ),
             ),
           )
