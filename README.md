@@ -11,7 +11,7 @@
 
 ## App Interface
 
-![HomePage](https://i.imgur.com/AbbOX2s.jpeg)
+![HomePage](https://i.imgur.com/AbbOX2s.jpeg | width=500 | height=1000)
 ![HomePage](https://i.imgur.com/GPEz5cs.jpeg)
 ![ForecastPage](https://i.imgur.com/3syULia.jpeg)
 ![SearchPage](https://i.imgur.com/wkNqp3N.jpeg)
