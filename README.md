@@ -1,4 +1,8 @@
 # Skysense: Weather & Forecasts
+
+## Download
+Download the app from [here](http://bit.ly/3MZ1Hfl)
+
 ## App Features
 ### 1. Latest Weather updates and forecasts fetched from an API
 ### 2. Search for any place and get its weather updates.
