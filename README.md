@@ -12,11 +12,11 @@
 ## App Interface
 
 <p float="left">
- <img src=https://i.imgur.com/AbbOX2s.jpeg width=300 height=500 />
- <img src=https://i.imgur.com/GPEz5cs.jpeg width=300 height=500 />
- <img src=https://i.imgur.com/3syULia.jpeg width=300 height=500 />
- <img src=https://i.imgur.com/wkNqp3N.jpeg width=300 height=500 />
- <img src=https://i.imgur.com/mdAy14b.jpeg width=300 height=500 />
+ <img src=https://i.imgur.com/AbbOX2s.jpeg width=300 height=600 />
+ <img src=https://i.imgur.com/GPEz5cs.jpeg width=300 height=600 />
+ <img src=https://i.imgur.com/3syULia.jpeg width=300 height=600 />
+ <img src=https://i.imgur.com/wkNqp3N.jpeg width=300 height=600 />
+ <img src=https://i.imgur.com/mdAy14b.jpeg width=300 height=600 />
 </p>
 
 ## APIs used
