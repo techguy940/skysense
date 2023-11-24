@@ -1,11 +1,12 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-// import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:google_nav_bar/google_nav_bar.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:weather_app/screens/favourites_scr.dart';
+import 'package:weather_app/services/network.dart';
+import 'package:weather_app/widgets/astro.dart';
 import 'package:weather_app/widgets/current_temp.dart';
 import 'package:weather_app/widgets/forecast.dart';
 import 'package:intl/intl.dart';
@@ -19,7 +20,6 @@ import 'package:weather_app/widgets/weather_details.dart';
 import 'package:liquid_pull_to_refresh/liquid_pull_to_refresh.dart';
 import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
-import 'package:flutter_osm_plugin/flutter_osm_plugin.dart';
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 
 @pragma('vm:entry-point')
@@ -27,7 +27,6 @@ Future sendNotification(double lat, double lon, int currentTemp,
     String tempCondition, String tempCondImg, String placeName) async {
   bool isAllowed = await AwesomeNotifications().isNotificationAllowed();
   if (!isAllowed) return;
-  print("INSIDE");
   AwesomeNotifications().createNotification(
     content: NotificationContent(
       id: 10,
@@ -35,7 +34,7 @@ Future sendNotification(double lat, double lon, int currentTemp,
       actionType: ActionType.Default,
       largeIcon: tempCondImg,
       title: '$currentTemp° in $placeName',
-      body: tempCondition,
+      body: "$tempCondition • See full forecast",
     ),
   );
 }
@@ -107,16 +106,21 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  // initializing all variables and constants
   String API_KEY = "";
   String AQI_API_KEY = "";
   String base_url = "https://api.weatherapi.com/v1";
   String aqi_base_url = "https://api.weatherbit.io/v2.0/current/airquality";
+  String FORECAST_API_KEY = "";
+  String forecast_base_url = "https://api.openweathermap.org/data/2.5/forecast";
   int _bottomNavIndex = 0;
   Position? currentPos;
   String? locality;
   String? temp;
   bool ready = false;
   bool fav = false;
+
+  // weather data variables
   String? pressure;
   String? humidity;
   String? windSpeed;
@@ -129,69 +133,54 @@ class _HomePageState extends State<HomePage> {
   String? precip;
   String? windGust;
   String? aqi;
+  String? sunriseTime;
+  String? sunsetTime;
+  String? moonriseTime;
+  String? moonsetTime;
+  String? moonPhase;
+  String? moonIllumation;
   bool forecastReady = false;
   List hourlyForecasts = [];
-  final MapController _mapController = MapController.withPosition(
-    initPosition: GeoPoint(
-      latitude: 47.4358055,
-      longitude: 8.4737324,
-    ),
-  );
   List<Widget> dailyForecast = [];
+
   @override
   void initState() {
     super.initState();
+    // ask for location permission and fetch weather details
     _askForPermission();
+    // if notification permission is denied, ask the user to allow notifications
     AwesomeNotifications().isNotificationAllowed().then((isAllowed) {
       if (!isAllowed) {
         AwesomeNotifications().requestPermissionToSendNotifications();
       }
     });
-    // WidgetsBinding.instance.addPostFrameCallback((timeStamp) {
-    //   _mapController.listenerMapSingleTapping.addListener(() async {
-    //     var position = _mapController.listenerMapSingleTapping.value;
-    //     print(position);
-    //     if (position != null) {
-    //       await _mapController.addMarker(
-    //         position,
-    //         markerIcon: const MarkerIcon(
-    //           icon: Icon(
-    //             Icons.pin_drop,
-    //             color: Colors.red,
-    //             size: 60,
-    //           ),
-    //         ),
-    //       );
-    //     }
-    //   });
-    // });
-    // AwesomeNotifications().createNotification(
-    //     content: NotificationContent(
-    //   id: 10,
-    //   channelKey: 'basic_channel',
-    //   actionType: ActionType.Default,
-    //   largeIcon:
-    //       'https://storage.googleapis.com/cms-storage-bucket/0dbfcc7a59cd1cf16282.png',
-    //   title: 'Hello World!',
-    //   body: 'This is my first notification!',
-    // ));
   }
 
-  Future<void> _setFavouriteStatus() async {
+  Future<void> _setFavouriteStatus(
+      [double? latitude, double? longitude]) async {
+    // get favourite places list
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     String? favs = prefs.getString("favourites");
     List _favs = [];
     if (favs != null) {
       _favs = json.decode(favs);
     }
+
+    // if lat, lon are passed use that else use weather or current position whichever is available
     double? lat, lon;
-    if (widget.latitude != -100000 && widget.longitude != -100000) {
-      lat = widget.latitude;
-      lon = widget.longitude;
+    if (latitude != null && longitude != null) {
+      lat = latitude;
+      lon = longitude;
     } else {
-      lat = currentPos?.latitude;
-      lon = currentPos?.longitude;
+      if (widget.latitude != -100000 && widget.longitude != -100000) {
+        lat = widget.latitude;
+        lon = widget.longitude;
+      } else {
+        lat = currentPos?.latitude;
+        lon = currentPos?.longitude;
+      }
     }
+    // if the current place is favourite, update the favourite status to true
     for (final place in _favs) {
       if (place['latitude'] == lat && place['longitude'] == lon) {
         setState(() {
@@ -202,7 +191,33 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _getSunriseSunset() async {
+    double? lat, lon;
+    if (widget.latitude != -100000 && widget.longitude != -100000) {
+      lat = widget.latitude;
+      lon = widget.longitude;
+    } else {
+      lat = currentPos?.latitude;
+      lon = currentPos?.longitude;
+    }
+    // call the api to get today's astro details
+    var res = await http.get(Uri.parse(
+        "https://api.weatherapi.com/v1/forecast.json?q=${lat},${lon}&days=1&key=${API_KEY}"));
+    var jsonRes = jsonDecode(res.body);
+    var astro = jsonRes['forecast']['forecastday'][0]['astro'];
+    // set details to variables accordingly
+    setState(() {
+      sunriseTime = astro['sunrise'];
+      sunsetTime = astro['sunset'];
+      moonriseTime = astro['moonrise'];
+      moonsetTime = astro['moonset'];
+      moonPhase = astro['moon_phase'];
+      moonIllumation = astro['moon_illumination'].toString();
+    });
+  }
+
   Future<void> _getDailyForecast(context) async {
+    // set loading status
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -220,6 +235,9 @@ class _HomePageState extends State<HomePage> {
         ),
       ),
     );
+    bool hasNetworkConnection = await hasNetwork();
+    if (!hasNetworkConnection) return;
+    // if daily forecast is fetched previously, show the data
     if (dailyForecast.isNotEmpty) {
       Navigator.push(
         context,
@@ -239,21 +257,36 @@ class _HomePageState extends State<HomePage> {
       lat = currentPos?.latitude;
       lon = currentPos?.longitude;
     }
+    // call the api to get next 5 days data
     var res = await http.get(Uri.parse(
-        "${base_url}/forecast.json?key=${API_KEY}&q=${lat},${lon}&days=8"));
+        "${forecast_base_url}?lat=${lat}&lon=${lon}&appid=${FORECAST_API_KEY}"));
     var jsonRes = jsonDecode(res.body);
-    List daily = jsonRes['forecast']['forecastday'];
+    List daily = jsonRes['list'];
+    List seen = [];
+    List<Widget> dailyForecastLocal = [];
+    daily.forEach((data) {
+      // add date to seen to avoid overwidgets
+      if (seen.contains(data['dt_txt'].split(" ")[0])) {
+        return;
+      }
+      dailyForecastLocal.add(
+        DayForecast(
+            day: DateFormat("EEEE")
+                .format(DateTime.fromMillisecondsSinceEpoch(data['dt'] * 1000)),
+            maxTemp: (data['main']['temp_max'] - 273).round(),
+            minTemp: (data['main']['temp_min'] - 273).round(),
+            image:
+                "https://openweathermap.org/img/wn/${data['weather'][0]['icon']}.png"),
+      );
+      // add date to seen
+      seen.add(data['dt_txt'].split(" ")[0]);
+    });
     daily = daily.sublist(1, daily.length);
     setState(() {
+      // set ready to true and dailyForecast to widgets
       forecastReady = true;
-      dailyForecast = daily.map((data) {
-        return DayForecast(
-            day: DateFormat("EEEE").format(
-                DateTime.fromMillisecondsSinceEpoch(data['date_epoch'] * 1000)),
-            maxTemp: data['day']['maxtemp_c'].round(),
-            minTemp: data['day']['mintemp_c'].round(),
-            image: "https:${data['day']['condition']['icon']}");
-      }).toList();
+      dailyForecast = dailyForecastLocal;
+      // remove loading and show data
       Navigator.pop(context);
       Navigator.push(
         context,
@@ -266,12 +299,64 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  // fallback function if location fetching fails
+  Future<bool> _wait() async {
+    await Future.delayed(const Duration(seconds: 10));
+    return false;
+  }
+
   Future<void> _askForPermission() async {
+    // gets shared preferences instance
     final SharedPreferences prefs = await SharedPreferences.getInstance();
+    bool hasNetworkConnection = await hasNetwork();
+    // if user has no internet connection, show the most recent weather data fetched if any
+    if (!hasNetworkConnection) {
+      String? recentWeatherData = prefs.getString("recentweatherdata");
+      if (recentWeatherData == null) {
+        return;
+      }
+      Map data = jsonDecode(recentWeatherData);
+
+      setState(() {
+        temp = data['temp'];
+        pressure = data['pressure'];
+        humidity = data['humidity'];
+        windSpeed = data['windSpeed'];
+        locality = data['locality'];
+        feelsLike = data['feelsLike'];
+        tempCondition = data['tempCondition'];
+        tempCondImg = data['tempCondImg'];
+        uvIndex = data['uvIndex'];
+        cloudPercent = data['cloudPercent'];
+        precip = data['precip'];
+        windGust = data['windGust'];
+        hourlyForecasts = data['hourlyForecasts'];
+        aqi = data['aqi'];
+        sunriseTime = data['sunriseTime'];
+        sunsetTime = data['sunsetTime'];
+        moonriseTime = data['moonriseTime'];
+        moonsetTime = data['moonsetTime'];
+        moonPhase = data['moonPhase'];
+        moonIllumation = data['moonIllumination'];
+        bgImage = data['bgImage'];
+        _setFavouriteStatus(data['latitude'], data['longitude']);
+        ready = true;
+        FlutterNativeSplash.remove();
+        // remove splash screen as data is ready
+      });
+      return;
+    }
+
+    // if widget has lat, lon use that
     if (widget.longitude != -100000 && widget.latitude != -100000) {
+      // set most recent to widget's lat, lon
       prefs.setString("mostrecent", "${widget.latitude},${widget.longitude}");
+      // periodic function, checks every 30 mins for weather updates
+      // works in background
       await AndroidAlarmManager.periodic(
-          const Duration(minutes: 1), 69, checkWeatherPeriodic);
+          const Duration(minutes: 30), 69, checkWeatherPeriodic);
+
+      // get current weather data, forecast data, aqi data
       var res = await http.get(Uri.parse(
           "${base_url}/current.json?key=${API_KEY}&q=${widget.latitude},${widget.longitude}"));
       var jsonResp = jsonDecode(res.body);
@@ -283,6 +368,7 @@ class _HomePageState extends State<HomePage> {
           "${aqi_base_url}?lat=${widget.latitude}&lon=${widget.longitude}&key=${AQI_API_KEY}"));
       var aqiJson = jsonDecode(aqiRes.body);
 
+      // parse time and set to hourlyForecastsLocal
       var hourlyForecastsLocal = hourlyJson.map((data) {
         String hour = data['time'].split(" ")[1].split(":")[0];
         if (int.parse(hour) < 12) {
@@ -299,7 +385,14 @@ class _HomePageState extends State<HomePage> {
           'image': "https:${data['condition']['icon']}"
         };
       }).toList();
+
+      // get background image according to the weather condition code
       await _getBgImage(jsonResp['current']['condition']['code']);
+
+      // get astro data
+      await _getSunriseSunset();
+
+      // set weather data accordingly
       setState(() {
         temp = (jsonResp['current']['temp_c']).round().toString();
         pressure = (jsonResp['current']['pressure_mb'] / 10).round().toString();
@@ -315,30 +408,77 @@ class _HomePageState extends State<HomePage> {
         windGust = jsonResp['current']['gust_kph'].round().toString();
         hourlyForecasts = hourlyForecastsLocal;
         aqi = aqiJson['data'][0]['aqi'].toString();
+        Map weatherData = {
+          "temp": temp,
+          "pressure": pressure,
+          "humidity": humidity,
+          "windSpeed": windSpeed,
+          "locality": locality,
+          "feelsLike": feelsLike,
+          "tempCondition": tempCondition,
+          "tempCondImg": tempCondImg,
+          "uvIndex": uvIndex,
+          "cloudPercent": cloudPercent,
+          "precip": precip,
+          "windGust": windGust,
+          "aqi": aqi,
+          "hourlyForecasts": hourlyForecastsLocal,
+          "bgImage": bgImage,
+          "sunriseTime": sunriseTime,
+          "sunsetTime": sunsetTime,
+          "moonriseTime": moonriseTime,
+          "moonsetTime": moonsetTime,
+          "moonPhase": moonPhase,
+          "moonIllumination": moonIllumation,
+          "latitude": widget.latitude,
+          "longitude": widget.longitude
+        };
+        // set the current data to recentweatherdata
+        prefs.setString("recentweatherdata", jsonEncode(weatherData));
         _setFavouriteStatus();
         ready = true;
         FlutterNativeSplash.remove();
-        // _mapController.changeLocation(
-        //   GeoPoint(
-        //     latitude: widget.latitude,
-        //     longitude: widget.longitude,
-        //   ),
-        // );
+        // remove splash screen as data is ready
       });
       return;
     }
 
-    var pos = currentPos == null ? null : currentPos;
-    if (pos == null) {
+    var pos;
+    try {
+      // ask for location permission
       const permission = Permission.location;
       final status = await permission.request();
       pos = status.isGranted
-          ? await Geolocator.getCurrentPosition()
-          : await Geolocator.getLastKnownPosition();
+          ? await Future.any([Geolocator.getCurrentPosition(), _wait()])
+          : await Future.any([Geolocator.getCurrentPosition(), _wait()]);
+      // if fetching location takes too long, fallback to default location
+      if (pos == false) {
+        throw Exception();
+      }
+    } catch (e) {
+      pos = Position(
+        latitude: 25.4358,
+        longitude: 81.8463,
+        timestamp: DateTime.now(),
+        accuracy: 0,
+        altitude: 0,
+        altitudeAccuracy: 0,
+        heading: 0,
+        headingAccuracy: 0,
+        speed: 0,
+        speedAccuracy: 0,
+      );
     }
+
+    // set most recent position data to live location lat, lon
     prefs.setString("mostrecent", "${pos?.latitude},${pos?.longitude}");
+
+    // periodic function, checks every 30 mins for weather updates
+    // works in background
     await AndroidAlarmManager.periodic(
-        const Duration(minutes: 1), 69, checkWeatherPeriodic);
+        const Duration(minutes: 30), 69, checkWeatherPeriodic);
+
+    // fetch current weather data, forecast data, aqi data
     var res = await http.get(Uri.parse(
         "${base_url}/current.json?key=${API_KEY}&q=${pos?.latitude},${pos?.longitude}"));
     var jsonResp = jsonDecode(res.body);
@@ -349,6 +489,8 @@ class _HomePageState extends State<HomePage> {
     var aqiRes = await http.get(Uri.parse(
         "${aqi_base_url}?lat=${pos?.latitude}&lon=${pos?.longitude}&key=${AQI_API_KEY}"));
     var aqiJson = jsonDecode(aqiRes.body);
+
+    // parse hour and set it to hourlyForecastsLocal
     var hourlyForecastsLocal = hourlyJson.map((data) {
       String hour = data['time'].split(" ")[1].split(":")[0];
       if (int.parse(hour) < 12) {
@@ -365,7 +507,14 @@ class _HomePageState extends State<HomePage> {
         'image': "https:${data['condition']['icon']}"
       };
     }).toList();
+
+    // get background image according to weather condition code
     await _getBgImage(jsonResp['current']['condition']['code']);
+
+    // get astro data
+    await _getSunriseSunset();
+
+    // set variables accordingly
     setState(() {
       currentPos = pos;
       temp = (jsonResp['current']['temp_c']).round().toString();
@@ -382,19 +531,43 @@ class _HomePageState extends State<HomePage> {
       windGust = jsonResp['current']['gust_kph'].round().toString();
       aqi = aqiJson['data'][0]['aqi'].toString();
       hourlyForecasts = hourlyForecastsLocal;
+      Map weatherData = {
+        "temp": temp,
+        "pressure": pressure,
+        "humidity": humidity,
+        "windSpeed": windSpeed,
+        "locality": locality,
+        "feelsLike": feelsLike,
+        "tempCondition": tempCondition,
+        "tempCondImg": tempCondImg,
+        "uvIndex": uvIndex,
+        "cloudPercent": cloudPercent,
+        "precip": precip,
+        "windGust": windGust,
+        "aqi": aqi,
+        "hourlyForecasts": hourlyForecastsLocal,
+        "bgImage": bgImage,
+        "sunriseTime": sunriseTime,
+        "sunsetTime": sunsetTime,
+        "moonriseTime": moonriseTime,
+        "moonsetTime": moonsetTime,
+        "moonPhase": moonPhase,
+        "moonIllumination": moonIllumation,
+        "latitude": pos?.latitude,
+        "longitude": pos?.longitude
+      };
+      // set current weather data to most recently fetched data
+      prefs.setString("recentweatherdata", jsonEncode(weatherData));
+      // set favourite status by latitude, longitude
       _setFavouriteStatus();
       ready = true;
       FlutterNativeSplash.remove();
-      // _mapController.changeLocation(
-      //   GeoPoint(
-      //     latitude: pos?.latitude as double,
-      //     longitude: pos?.longitude as double,
-      //   ),
-      // );
+      // remove splash screen as data is ready
     });
   }
 
   Future<int> _getBgImage(int code) async {
+    // gets background image as per the weather condition code
     Map codes_map = {
       1000: 'CheckForDayNight',
       1003: 'drizzle.jpg',
@@ -446,6 +619,8 @@ class _HomePageState extends State<HomePage> {
       1282: 'snow.jpg'
     };
     String imagePath = "assets/";
+
+    // parse hour to 24 hour format
     int hour = int.parse(DateFormat("HH").format(DateTime.now()));
     if (code == 1000) {
       if (hour > 5 && hour < 18) {
@@ -466,114 +641,86 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return ready
         ? Scaffold(
-            bottomNavigationBar: BottomNavigationBar(
-              currentIndex: _bottomNavIndex,
-              onTap: (value) => setState(() {
-                _bottomNavIndex = value;
-                print(value);
-                if (_bottomNavIndex == 1) {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => WillPopScope(
-                        onWillPop: () async {
-                          setState(() {
-                            _bottomNavIndex = 0;
-                          });
-                          return true;
-                        },
-                        child: const Search(),
-                      ),
-                    ),
-                  );
-                } else if (_bottomNavIndex == 2) {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => WillPopScope(
-                        onWillPop: () async {
-                          setState(() {
-                            _bottomNavIndex = 0;
-                          });
-                          return true;
-                        },
-                        child: const Favourites(),
-                      ),
-                    ),
-                  );
-                } else if (_bottomNavIndex == 3) {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => WillPopScope(
-                        onWillPop: () async {
-                          setState(() {
-                            _bottomNavIndex = 0;
-                          });
-                          return true;
-                        },
-                        child: Scaffold(
-                          body: OSMFlutter(
-                            controller: _mapController,
-                            osmOption: const OSMOption(
-                              zoomOption: ZoomOption(
-                                initZoom: 15,
-                                stepZoom: 1.0,
-                              ),
-                            ),
+            bottomNavigationBar: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 15,
+              ),
+              decoration: BoxDecoration(color: Colors.black.withOpacity(0.8)),
+              child: GNav(
+                // nav bar
+                selectedIndex: _bottomNavIndex,
+                onTabChange: (value) {
+                  setState(() {
+                    _bottomNavIndex = value;
+                    if (_bottomNavIndex == 1) {
+                      // push search screen
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => WillPopScope(
+                            onWillPop: () async {
+                              setState(() {
+                                _bottomNavIndex = 0;
+                              });
+                              return true;
+                            },
+                            child: const Search(),
                           ),
                         ),
-                      ),
-                    ),
-                  );
-                }
-              }),
-              items: [
-                BottomNavigationBarItem(
-                  label: 'Home',
-                  icon: Icon(
-                    Icons.home_rounded,
-                    color: _bottomNavIndex == 0
-                        ? Colors.blue
-                        : Colors.grey.shade400,
-                    size: 26,
+                      );
+                    } else if (_bottomNavIndex == 2) {
+                      // push favourites screen
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => WillPopScope(
+                            onWillPop: () async {
+                              setState(() {
+                                _bottomNavIndex = 0;
+                              });
+                              return true;
+                            },
+                            child: const Favourites(),
+                          ),
+                        ),
+                      );
+                    }
+                  });
+                },
+                rippleColor: Colors
+                    .grey.shade800, // tab button ripple color when pressed
+                hoverColor: Colors.grey.shade700, // tab button hover color
+                tabBorderRadius: 15,
+                duration: Duration(milliseconds: 100), // tab animation duration
+                gap: 8, // the tab button gap between icon and text
+                color: Colors.grey[800], // unselected icon color
+                activeColor: Colors.white, // selected icon and text color
+                iconSize: 24, // tab button icon size
+                tabBackgroundColor: Colors.white
+                    .withOpacity(0.1), // selected tab background color
+                padding: EdgeInsets.symmetric(
+                    horizontal: 20, vertical: 10), // navigation bar padding
+                tabs: [
+                  GButton(
+                    icon: Icons.home_rounded,
+                    text: 'Home',
                   ),
-                ),
-                BottomNavigationBarItem(
-                  label: 'Search',
-                  icon: Icon(
-                    Icons.search_rounded,
-                    color: _bottomNavIndex == 1
-                        ? Colors.blue
-                        : Colors.grey.shade400,
-                    size: 26,
+                  GButton(
+                    icon: Icons.search_rounded,
+                    text: 'Search',
                   ),
-                ),
-                BottomNavigationBarItem(
-                  label: 'Favourites',
-                  icon: Icon(
-                    Icons.favorite,
-                    color: _bottomNavIndex == 2
-                        ? Colors.blue
-                        : Colors.grey.shade400,
-                    size: 26,
+                  GButton(
+                    icon: Icons.favorite,
+                    text: 'Favourites',
                   ),
-                ),
-                BottomNavigationBarItem(
-                  label: 'Map',
-                  icon: Icon(
-                    Icons.map_outlined,
-                    color: _bottomNavIndex == 3
-                        ? Colors.blue
-                        : Colors.grey.shade400,
-                    size: 26,
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
             body: SafeArea(
               child: LiquidPullToRefresh(
                 onRefresh: () async {
+                  // fetches current weather data
                   await _askForPermission();
                 },
                 child: Column(
@@ -584,17 +731,13 @@ class _HomePageState extends State<HomePage> {
                           Stack(
                             children: [
                               Image.asset(
+                                // background weather image
                                 bgImage!,
                                 fit: BoxFit.fill,
                                 height:
-                                    MediaQuery.of(context).size.height * 0.89,
+                                    MediaQuery.of(context).size.height * 1.18,
                                 // height: double.infinity,
                               ),
-                              // Container(
-                              //   decoration: BoxDecoration(
-                              //     color: Colors.black.withOpacity(0.5),
-                              //   ),
-                              // ),
                               Column(
                                 children: [
                                   Padding(
@@ -611,11 +754,13 @@ class _HomePageState extends State<HomePage> {
                                         PlaceName(label: locality!),
                                         IconButton(
                                           onPressed: () async {
+                                            // get shared preferences instance
                                             final SharedPreferences prefs =
                                                 await SharedPreferences
                                                     .getInstance();
                                             String? favs =
                                                 prefs.getString("favourites");
+                                            // get favourites list
                                             List _favs = [];
                                             if (favs != null) {
                                               _favs = json.decode(favs);
@@ -632,6 +777,7 @@ class _HomePageState extends State<HomePage> {
                                                 widget.latitude == -100000
                                                     ? currentPos!.longitude
                                                     : widget.longitude;
+                                            // add to favourite places
                                             if (fav == false) {
                                               _favs.add({
                                                 "label": label,
@@ -643,12 +789,12 @@ class _HomePageState extends State<HomePage> {
                                                 json.encode(_favs),
                                               );
                                             } else {
+                                              // remove from favourite places
                                               for (final elem in _favs) {
-                                                if (_favs[0]['label'] ==
-                                                        label &&
-                                                    _favs[0]['latitude'] ==
+                                                if (elem['label'] == label &&
+                                                    elem['latitude'] ==
                                                         latitude &&
-                                                    _favs[0]['longitude'] ==
+                                                    elem['longitude'] ==
                                                         longitude) {
                                                   _favs.remove(elem);
                                                   break;
@@ -659,6 +805,7 @@ class _HomePageState extends State<HomePage> {
                                                 json.encode(_favs),
                                               );
                                             }
+                                            // set fav to true if false and vice-versa to update icon
                                             setState(() {
                                               fav = !fav;
                                             });
@@ -682,8 +829,11 @@ class _HomePageState extends State<HomePage> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.center,
                                     children: [
-                                      CurrentTemperature(temp: temp!),
+                                      CurrentTemperature(
+                                          temp:
+                                              temp!), // current temperature widge
                                       Text(
+                                        // feels like temperature
                                         "Feels like ${feelsLike!}\u00B0 C",
                                         style: const TextStyle(
                                           color: Colors.white,
@@ -700,6 +850,7 @@ class _HomePageState extends State<HomePage> {
                                       mainAxisAlignment:
                                           MainAxisAlignment.spaceEvenly,
                                       children: [
+                                        // some major metrics
                                         Details(
                                           asset:
                                               "assets/air-pressure-white.png",
@@ -716,6 +867,7 @@ class _HomePageState extends State<HomePage> {
                                       ],
                                     ),
                                   ),
+                                  // metrics data
                                   Metrics(
                                     tempCondition: tempCondition!,
                                     uvIndex: uvIndex!,
@@ -748,8 +900,9 @@ class _HomePageState extends State<HomePage> {
                                             InkWell(
                                               onTap: () =>
                                                   _getDailyForecast(context),
+                                              // next 5 days forecast
                                               child: const Text(
-                                                "Next 7 Days",
+                                                "Next 5 Days",
                                                 style: TextStyle(
                                                   color: Colors.white,
                                                   decoration:
@@ -763,6 +916,7 @@ class _HomePageState extends State<HomePage> {
                                           height: 10,
                                         ),
                                         Container(
+                                          // hourly forecast
                                           width: double.infinity,
                                           padding: const EdgeInsets.all(10),
                                           height: 115,
@@ -789,6 +943,15 @@ class _HomePageState extends State<HomePage> {
                                       ],
                                     ),
                                   ),
+                                  // astrology data widget
+                                  Astro(
+                                    sunriseTime: sunriseTime!,
+                                    sunsetTime: sunsetTime!,
+                                    moonriseTime: moonriseTime!,
+                                    moonsetTime: moonsetTime!,
+                                    moonPhase: moonPhase!,
+                                    moonIllumation: moonIllumation!,
+                                  ),
                                 ],
                               ),
                             ],
@@ -802,6 +965,7 @@ class _HomePageState extends State<HomePage> {
             ),
           )
         : const Column(
+            // show loading while data is loading
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [

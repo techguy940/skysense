@@ -43,17 +43,21 @@ dependencies:
   awesome_notifications: any
   android_alarm_manager_plus: ^3.0.3
   flutter_native_splash: ^2.3.5
-  flutter_osm_plugin: ^0.70.1
-  location_picker_flutter_map: ^2.0.0
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.2
-  flutter_map: ^6.0.1
+  google_nav_bar: ^5.0.6
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons: "^0.13.1"
+
+flutter_launcher_icons:
+  android: true
+  image_path: "assets/app-logo.png"
+
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

@@ -76,6 +76,7 @@ class _FavouriteLocationState extends State<FavouriteLocation> {
                         ),
                       ),
                       Text(
+                        // max and min temperature
                         "${widget.maxTemp}\u00B0 / ${widget.minTemp}\u00B0",
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.65),
@@ -85,6 +86,7 @@ class _FavouriteLocationState extends State<FavouriteLocation> {
                     ],
                   ),
                   Image.network(
+                    // weather code logo
                     widget.image,
                     width: 60,
                     height: 60,

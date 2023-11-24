@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:weather_app/widgets/favourite_widget.dart';
 
 String getBgImage(int code) {
+  // gets the background image by weather condition code
   Map codesMap = {
     1000: 'CheckForDayNight-dark.jpg',
     1003: 'drizzle-dark.jpg',
@@ -57,6 +58,7 @@ String getBgImage(int code) {
     1282: 'snow-dark.jpg'
   };
   String imagePath = "assets/";
+  // format hour to be 24 hour format
   int hour = int.parse(DateFormat("HH").format(DateTime.now()));
   if (code == 1000) {
     if (hour > 5 && hour < 18) {
@@ -78,9 +80,13 @@ class Favourites extends StatefulWidget {
 }
 
 class _FavouritesState extends State<Favourites> {
+  // initialize all variables and constants
+  // ready corresponds to if data is ready to show
   bool ready = false;
+  // favourite places list
   List favourites = [];
-  String API_KEY = "580b14a8a6934975a43115003230511";
+  // api key and base url for fetching data
+  String API_KEY = "";
   String base_url = "https://api.weatherapi.com/v1";
 
   @override
@@ -90,6 +96,7 @@ class _FavouritesState extends State<Favourites> {
   }
 
   Future<void> _getFavourites() async {
+    // get stored favourite places
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     String? favs = prefs.getString("favourites");
     List _favs = [];
@@ -97,6 +104,8 @@ class _FavouritesState extends State<Favourites> {
       _favs = json.decode(favs);
     }
     List favouritesLocal = [];
+
+    // for each place, fetch its current weather data
     for (final elem in _favs) {
       var res = await http.get(Uri.parse(
           "${base_url}/forecast.json?key=${API_KEY}&q=${elem['latitude']},${elem['longitude']}&days=1"));
@@ -108,6 +117,7 @@ class _FavouritesState extends State<Favourites> {
       int code = data['day']['condition']['code'];
       String assetSrc = getBgImage(code);
 
+      // add favourite location variable
       favouritesLocal.add(FavouriteLocation(
         label: elem['label'],
         latitude: elem['latitude'],
@@ -117,12 +127,15 @@ class _FavouritesState extends State<Favourites> {
         image: image,
         assetSrc: assetSrc,
       ));
+      // to add spacing between two places
       favouritesLocal.add(
         const SizedBox(
           height: 10,
         ),
       );
     }
+
+    // set variables accordinly
     setState(() {
       favourites = favouritesLocal;
       ready = true;
@@ -133,28 +146,40 @@ class _FavouritesState extends State<Favourites> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  "Favourites",
-                  style: TextStyle(
-                    color: Color.fromRGBO(36, 96, 155, 1),
-                    fontSize: 26,
-                    fontWeight: FontWeight.w600,
+        child: ready == true
+            ? SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        "Favourites",
+                        style: TextStyle(
+                          color: Color.fromRGBO(36, 96, 155, 1),
+                          fontSize: 26,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(
+                        height: 20,
+                      ),
+                      ...favourites,
+                    ],
                   ),
                 ),
-                const SizedBox(
-                  height: 20,
+              )
+            : const SizedBox(
+                // loading while data is being fetched
+                width: double.infinity,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(),
+                  ],
                 ),
-                ...favourites,
-              ],
-            ),
-          ),
-        ),
+              ),
       ),
     );
   }

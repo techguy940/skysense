@@ -59,10 +59,12 @@ class _MetricsState extends State<Metrics> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Metric(
+                    // temperature condition
                     label: "CONDITION",
                     value: widget.tempCondition,
                   ),
                   Metric(
+                    // uv index
                     label: "ULTRAVIOLET",
                     value: widget.uvIndex,
                   ),
@@ -76,10 +78,12 @@ class _MetricsState extends State<Metrics> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Metric(
+                    // precipitation
                     label: "PRECIPITATION",
                     value: "${widget.precip} mm",
                   ),
                   Metric(
+                    // cloudiness %
                     label: "CLOUDINESS",
                     value: "${widget.cloudPercent}%",
                   ),
@@ -92,11 +96,12 @@ class _MetricsState extends State<Metrics> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Metric(
+                    // wind gust
                     label: "WIND GUST",
                     value: "${widget.windGust} kmph",
                   ),
-                  // Todo: Fetch AQI
                   Metric(
+                    // aqi
                     label: "AIR QUALITY",
                     value: widget.aqi,
                   ),

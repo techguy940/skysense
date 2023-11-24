@@ -27,6 +27,7 @@ class _DetailsState extends State<Details> {
           width: 7,
         ),
         Text(
+          // shows value
           widget.value,
           style: const TextStyle(
             color: Colors.white,

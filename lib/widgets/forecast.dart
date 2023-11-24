@@ -43,6 +43,7 @@ class _DayForecastState extends State<DayForecast> {
                 ),
               ),
               Text(
+                // max and min temperature
                 "${widget.maxTemp}\u00B0 / ${widget.minTemp}\u00B0",
                 style: const TextStyle(
                   color: Color.fromARGB(175, 127, 127, 127),
@@ -51,9 +52,23 @@ class _DayForecastState extends State<DayForecast> {
             ],
           ),
           Image.network(
+            // weather condition code
             widget.image,
             width: 60,
             height: 60,
+            // if fetching failed, return error icon
+            errorBuilder: (BuildContext context, Object exception,
+                StackTrace? stackTrace) {
+              return const SizedBox(
+                width: 60,
+                height: 60,
+                child: Icon(
+                  Icons.error_outlined,
+                  color: Colors.white,
+                  size: 30,
+                ),
+              );
+            },
           ),
         ],
       ),

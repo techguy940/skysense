@@ -20,6 +20,7 @@ class _MetricState extends State<Metric> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
+          // metric label
           widget.label,
           style: const TextStyle(
             color: Color.fromRGBO(200, 200, 200, 1),
@@ -28,6 +29,7 @@ class _MetricState extends State<Metric> {
           ),
         ),
         Text(
+          // metric value
           widget.value,
           style: const TextStyle(
             color: Colors.white,

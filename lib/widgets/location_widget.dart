@@ -49,6 +49,7 @@ class _LocationState extends State<Location> {
               width: 20,
             ),
             Text(
+              // shows place name
               widget.label,
               style: const TextStyle(
                 fontSize: 16,

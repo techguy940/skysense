@@ -25,6 +25,7 @@ class _PlaceNameState extends State<PlaceName> {
           width: 5,
         ),
         Text(
+          // shows place name
           widget.label,
           style: const TextStyle(
             color: Colors.white,

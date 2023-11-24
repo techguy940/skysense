@@ -12,11 +12,18 @@ class Search extends StatefulWidget {
 }
 
 class _SearchState extends State<Search> {
+  // initialize variables and constants
+
+  // debouncer to debounce input and search
   final _debouncer = Debouncer(milliseconds: 500);
   bool isSearchActive = false;
+  // suggestions list
   List<Widget> suggestions = [];
+
+  // api keys to fetch data
   String PLACES_API_KEY = "";
   String GEOCODE_API_KEY = "";
+  String suggestText = "No suggestions yet";
   final TextEditingController _search = TextEditingController();
   @override
   Widget build(BuildContext context) {
@@ -34,35 +41,46 @@ class _SearchState extends State<Search> {
                 child: TextField(
                   onChanged: (value) {
                     if (value == "") {
-                      setState(() => suggestions = []);
+                      // if value is empty no need to search
+                      setState(() {
+                        suggestText = "No suggestions yet";
+                        suggestions = [];
+                      });
                       return;
                     }
+                    // set text to loading while data is being fetched
+                    setState(() => suggestText = "Loading suggestions...");
+
                     _debouncer.run(() {
                       http
                           .get(Uri.parse(
                               "http://api.positionstack.com/v1/forward?access_key=$GEOCODE_API_KEY&query=$value"))
                           .then((res) {
                         var jsonResp = jsonDecode(res.body);
+                        // if error return
                         if (jsonResp.containsKey('error')) {
                           return;
                         }
+                        List<Widget> suggest = [];
+                        for (final elem in jsonResp['data']) {
+                          suggest.add(
+                            Location(
+                              latitude: elem['latitude'],
+                              longitude: elem['longitude'],
+                              label: elem['label'].length > 25
+                                  ? elem['label'].substring(0, 25)
+                                  : elem['label'],
+                            ),
+                          );
+                        }
+                        // show maximum 8 suggestions
+                        if (suggest.length > 8) {
+                          suggest = suggest.sublist(0, 8);
+                        }
+                        // set variables accordingly
                         setState(() {
-                          List<Widget> suggest = [];
-                          for (final elem in jsonResp['data']) {
-                            suggest.add(
-                              Location(
-                                latitude: elem['latitude'],
-                                longitude: elem['longitude'],
-                                label: elem['label'].length > 25
-                                    ? elem['label'].substring(0, 25)
-                                    : elem['label'],
-                              ),
-                            );
-                          }
-                          if (suggest.length > 8) {
-                            suggest = suggest.sublist(0, 8);
-                          }
                           suggestions = suggest;
+                          suggestText = "No suggestions yet";
                         });
                       });
                     });
@@ -95,16 +113,17 @@ class _SearchState extends State<Search> {
                 height: 20,
               ),
               suggestions.isEmpty
-                  ? const Text(
-                      "No suggestions yet",
-                      style: TextStyle(
+                  ? Text(
+                      suggestText,
+                      style: const TextStyle(
                         fontSize: 16,
                       ),
                     )
                   : SizedBox(
                       height: MediaQuery.of(context).size.height * 0.8,
                       child: ListView(
-                        physics: const BouncingScrollPhysics(),
+                        physics:
+                            const BouncingScrollPhysics(), // to avoid blue tint when scrolled more
                         children: suggestions,
                       ),
                     ),

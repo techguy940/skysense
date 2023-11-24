@@ -20,6 +20,7 @@ class _CurrentTemperatureState extends State<CurrentTemperature> {
       children: [
         RichText(
           text: TextSpan(
+            // huge font size
             text: widget.temp,
             style: const TextStyle(
               color: Colors.white,

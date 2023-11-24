@@ -6,12 +6,6 @@ import 'package:awesome_notifications/awesome_notifications.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-// @pragma('vm:entry-point')
-// void printHello() {
-//   final DateTime now = DateTime.now();
-//   print("[$now] Hello, world! function='$printHello'");
-// }
-
 void main() async {
   AwesomeNotifications().initialize(
       // set the icon to null if you want to use the default app icon
@@ -85,11 +79,6 @@ class _AppState extends State<App> {
       theme: ThemeData(
         textTheme: GoogleFonts.poppinsTextTheme(Theme.of(context).textTheme),
       ),
-      // home: const HomePage(
-      //   latitude: -100000,
-      //   longitude: 100000,
-      //   locality: "",
-      // ),
     );
   }
 }
@@ -98,16 +87,12 @@ class NotificationController {
   /// Use this method to detect when a new notification or a schedule is created
   @pragma("vm:entry-point")
   static Future<void> onNotificationCreatedMethod(
-      ReceivedNotification receivedNotification) async {
-    // Your code goes here
-  }
+      ReceivedNotification receivedNotification) async {}
 
   /// Use this method to detect every time that a new notification is displayed
   @pragma("vm:entry-point")
   static Future<void> onNotificationDisplayedMethod(
-      ReceivedNotification receivedNotification) async {
-    // Your code goes here
-  }
+      ReceivedNotification receivedNotification) async {}
 
   /// Use this method to detect if the user dismissed a notification
   @pragma("vm:entry-point")
@@ -115,15 +100,12 @@ class NotificationController {
       ReceivedAction receivedAction) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     prefs.setString("notificationsent", "false");
-    // Your code goes here
   }
 
   /// Use this method to detect when the user taps on a notification or action button
   @pragma("vm:entry-point")
   static Future<void> onActionReceivedMethod(
       ReceivedAction receivedAction) async {
-    // Your code goes here
-
     // Navigate into pages, avoiding to open the notification details page over another details page already opened
     App.navigatorKey.currentState?.pushNamedAndRemoveUntil(
         '/notification-page',

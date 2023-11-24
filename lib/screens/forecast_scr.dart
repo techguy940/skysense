@@ -25,7 +25,7 @@ class _ForecastScreenState extends State<ForecastScreen> {
               Navigator.of(context).popUntil((route) => route.isFirst),
         ),
         title: const Text(
-          "7 Days Forecast",
+          "5 Days Forecast",
           style: TextStyle(
             color: Colors.white,
           ),

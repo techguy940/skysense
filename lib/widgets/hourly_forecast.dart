@@ -28,11 +28,26 @@ class _HourlyForecastState extends State<HourlyForecast> {
             ),
           ),
           Image.network(
+            // weather condition image
             widget.image,
             width: 50,
             height: 50,
+            // if fetching failed, show error icon
+            errorBuilder: (BuildContext context, Object exception,
+                StackTrace? stackTrace) {
+              return const SizedBox(
+                width: 50,
+                height: 50,
+                child: Icon(
+                  Icons.error_outlined,
+                  color: Colors.white,
+                  size: 30,
+                ),
+              );
+            },
           ),
           Text(
+            // hourly temp
             "${widget.temp}°",
             style: const TextStyle(
               fontWeight: FontWeight.w600,
